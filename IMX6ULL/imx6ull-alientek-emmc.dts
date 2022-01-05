@@ -15,6 +15,16 @@
 	model = "Freescale i.MX6 ULL 14x14 EVK Board";
 	compatible = "fsl,imx6ull-14x14-evk", "fsl,imx6ull";
 
+	key {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "atkalpha-key";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_key>;
+		key-gpio = <&gpio1 18 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+
 	beep {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -297,6 +307,12 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_hog_1>;
 	imx6ul-evk {
+
+		pinctrl_key: keygrp {
+			fsl,pins = <
+				MX6UL_PAD_UART1_CTS_B__GPIO1_IO18	0xF080;	/* key0 */
+			>;
+		};
 
 		pinctrl_beep: beepgrp {
 			fsl,pins = <
