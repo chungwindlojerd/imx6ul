@@ -15,16 +15,14 @@
 	model = "Freescale i.MX6 ULL 14x14 EVK Board";
 	compatible = "fsl,imx6ull-14x14-evk", "fsl,imx6ull";
 
-	alphaled {
+	beep {
 		#address-cells = <1>;
 		#size-cells = <1>;
-		compatible = "atkalpha-led";
+		compatible = "atkalpha-beep";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_beep>;
+		beep_gpio = <&gpio5 1 GPIO_ACTIVE_HIGH>;
 		status = "okay";
-		reg = <	0x020C406C 0x04			/* CCM_CCGR1_BASE */
-				0x020E0068 0x04			/* SW_MUX_GPIO1_IO03_BASE */
-				0x020E02F4 0x04			/* SW_PAD_GPIO1_IO03_BASE */
-				0x0209C000 0x04			/* GPIO1_DR_BASE */
-				0x0209C004 0x04 >;		/* GPIO1_GDIR_BASE */	
 	};
 
 	chosen {
@@ -299,9 +297,16 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_hog_1>;
 	imx6ul-evk {
+
+		pinctrl_beep: beepgrp {
+			fsl,pins = <
+				MX6ULL_PAD_SNVS_TAMPER1__GPIO5_IO01	0x10B0	/* beep */
+			>;
+		};
+		
 		pinctrl_hog_1: hoggrp-1 {
 			fsl,pins = <
-				MX6UL_PAD_UART1_RTS_B__GPIO1_IO19	0x17059 /* SD1 CD */
+				MX6UL_PAD_UART1_RTS_B__GPIO1_IO19		0x17059 /* SD1 CD */
 				MX6UL_PAD_GPIO1_IO05__USDHC1_VSELECT	0x17059 /* SD1 VSELECT */
 				MX6UL_PAD_GPIO1_IO09__GPIO1_IO09        0x17059 /* SD1 RESET */
 			>;
