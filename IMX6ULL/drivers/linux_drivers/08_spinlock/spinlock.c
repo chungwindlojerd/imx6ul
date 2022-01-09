@@ -163,6 +163,10 @@ static int __init beep_init(void)
         return PTR_ERR(beep.class);
     }
 
+    beep.device = device_create(beep.class, NULL, beep.devid, NULL,
+                                BEEP_NAME);
+    if (IS_ERR(beep.device)) return PTR_ERR(beep.device);
+
     return 0;
 }
 

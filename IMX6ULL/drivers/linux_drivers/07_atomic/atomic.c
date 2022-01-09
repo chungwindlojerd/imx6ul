@@ -84,7 +84,7 @@ static ssize_t beep_write(struct file *filp, const char __user *buf,
     return 0;
 }
 
-static beep_release(struct inode *inode, struct file *filp)
+static int beep_release(struct inode *inode, struct file *filp)
 {
     struct beep_dev *dev = filp->private_data;
     atomic_inc(&dev->lock);
@@ -153,6 +153,10 @@ static int __init beep_init(void)
     {
         return PTR_ERR(beep.class);
     }
+
+    beep.device = device_create(beep.class, NULL, beep.devid, NULL,
+                                BEEP_NAME);
+    if (IS_ERR(beep.device)) return PTR_ERR(beep.device);
 
     return 0;
 }

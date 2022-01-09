@@ -1,3 +1,14 @@
+/**
+ * @file beepApp.c
+ * @author Jack (jackhuang021@gmail.com)
+ * @brief 
+ * @version 0.1
+ * @date 2022-01-05
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -6,16 +17,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define BEEP_ON      1
-#define BEEP_OFF     0
+#define BEEP_OFF        0
+#define BEEP_ON         1
 
 int main(int argc, char *argv[])
 {
     int fd = 0;
     int retvalue = 0;
-    char *filename = NULL;
-    unsigned char cnt = 0;
-    unsigned char databuf[1];
+    char *filename;
+    unsigned char databuff[1];
 
     if (argc != 3)
     {
@@ -32,27 +42,17 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    databuf[0] = atoi(argv[2]);
+    databuff[0] = atoi(argv[2]);
 
-    retvalue = write(fd, databuf, sizeof(databuf));
+    retvalue = write(fd, databuff, sizeof(databuff));
     if (retvalue < 0)
     {
-        printf("led control failed.\r\n");
+        printf("beep control failed.\r\n");
         close(fd);
         return -1;
     }
 
-    while (1)
-    {
-        sleep(5);
-        cnt ++;
-        printf("app running times: %d\r\n", cnt);
-        if (cnt > 5) break;
-    }
-
-    printf("app running finishe.\r\n");
     retvalue = close(fd);
-
     if (retvalue < 0)
     {
         printf("file %s close failed.\r\n", filename);
