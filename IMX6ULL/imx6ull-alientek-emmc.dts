@@ -37,6 +37,16 @@
 		status = "okay";
 	};
 
+	gpioled {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "atkalpha-led";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_led>;
+		led-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+
 	chosen {
 		stdout-path = &uart1;
 	};
@@ -310,6 +320,12 @@
 	pinctrl-0 = <&pinctrl_hog_1>;
 	imx6ul-evk {
 
+		pinctrl_led: ledgrp {
+			fsl,pins = <
+				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0x10B0	/* led */
+			>;
+		};
+
 		pinctrl_key: keygrp {
 			fsl,pins = <
 				MX6UL_PAD_UART1_CTS_B__GPIO1_IO18	0xF080	/* key0 */
@@ -472,7 +488,7 @@
 			fsl,pins = <
 				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01	0xb0
 				MX6UL_PAD_GPIO1_IO02__GPIO1_IO02	0xb0
-				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0xb0
+				/*MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0xb0*/
 				MX6UL_PAD_GPIO1_IO04__GPIO1_IO04	0xb0
 			>;
 		};
@@ -726,7 +742,7 @@
 &tsc {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_tsc>;
-	xnur-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;
+	/*xnur-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;*/
 	measure-delay-time = <0xffff>;
 	pre-charge-time = <0xfff>;
 	status = "okay";

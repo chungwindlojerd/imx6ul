@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
     while (1)
     {
         printf("input cmd: ");
-        ret = scanf("%d", cmd);
+        ret = scanf("%d", &cmd);
 
         if (cmd == 1) cmd = CLOSE_CMD;
         else if (cmd == 2) cmd = OPEN_CMD;
