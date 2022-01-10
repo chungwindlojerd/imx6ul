@@ -20,7 +20,7 @@
 #include <asm/io.h>
 
 #define IMX6UIRQ_CNT        1
-#define IMX6UIRQ_NAME       "imx6uirq"
+#define IMX6UIRQ_NAME       "blockio"
 #define KEY0VALUE           0x01
 #define INVAKEY             0xFF
 #define KEY_NUM             1
