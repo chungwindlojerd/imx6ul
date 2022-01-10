@@ -48,6 +48,8 @@ struct imx6uirq_dev
     struct timer_list timer;
     struct irq_keydesc irqkeydesc[KEY_NUM];
     unsigned char cur_keynum;
+
+    wait_queue_head_t r_wait;       /* 读等待队列头 */
 };
 
 struct imx6uirq_dev imx6uirq;
@@ -76,6 +78,12 @@ void timer_function(unsigned long arg)
     {
         atomic_set(&dev->keyvalue, 0x80 | keydesc->value);
         atomic_set(&dev->releasekey, 1);
+    }
+
+    /* 唤醒进程 */
+    if (atomic_read(&dev->releasekey))
+    {
+        wake_up_interruptible(&dev->r_wait);
     }
 }
 
@@ -134,6 +142,10 @@ static int keyio_init(void)
     /* create timer */
     init_timer(&imx6uirq.timer);
     imx6uirq.timer.function = timer_function;
+
+    /* init wait queue */
+    init_waitqueue_head(&imx6uirq.r_wait);
+
     return 0;
 }
 
@@ -150,6 +162,23 @@ static ssize_t imx6uirq_read(struct file *filp, char __user *buf,
     unsigned char keyvalue = 0;
     unsigned char releasekey = 0;
     struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+    /* add wait queue to wait key press */
+    DECLARE_WAITQUEUE(wait, current);           /* define a wait queue */
+    if (atomic_read(&dev->releasekey) == 0)
+    {
+        add_wait_queue(&dev->r_wait, &wait);    /* add to wait queue head */
+        __set_current_state(TASK_INTERRUPTIBLE);/* set pending state */
+        schedule();                             /* schedule task */
+        if (signal_pending(current) == 0)       /* is signal wakeup return error */
+        {
+            ret = -ERESTARTSYS;
+            goto wait_error;
+        }
+
+        __set_current_state(TASK_RUNNING);      /* set running state */
+        remove_wait_queue(&dev->r_wait, &wait); /* remove wait queue from head */
+    }
     
     keyvalue = atomic_read(&dev->keyvalue);
     releasekey = atomic_read(&dev->releasekey);
@@ -172,6 +201,11 @@ static ssize_t imx6uirq_read(struct file *filp, char __user *buf,
         goto data_error;
     }
     return 0;
+
+wait_error:
+    set_current_state(TASK_RUNNING);
+    remove_wait_queue(&dev->r_wait, &wait);
+    return ret;
 
 data_error:
     return -EINVAL;    
