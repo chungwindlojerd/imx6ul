@@ -36,7 +36,7 @@
 		beep-gpio = <&gpio5 1 GPIO_ACTIVE_HIGH>;
 		status = "okay";
 	};
-
+/*
 	gpioled {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -45,6 +45,17 @@
 		pinctrl-0 = <&pinctrl_led>;
 		led-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;
 		status = "okay";
+	};
+*/
+	
+	dtsleds {
+		compatible = "gpio-leds";
+		led0 {
+			label = "red";
+			gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;
+			linux,default-trigger = "heartbeat";
+			default-state = "off";
+		};
 	};
 
 	chosen {
