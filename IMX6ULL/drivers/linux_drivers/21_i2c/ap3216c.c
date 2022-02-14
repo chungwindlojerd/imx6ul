@@ -138,7 +138,7 @@ static int ap3216c_open(struct inode *inode, struct file *filp)
 {
     filp->private_data = &ap3216cdev;
 
-    ap3216c_write_reg(&ap3216cdev, AP3216C_SYSTEMCONG, 0x04);
+    ap3216c_write_reg(&ap3216cdev, AP3216C_SYSTEMCONG, 0x03);
     mdelay(50);
     ap3216c_write_reg(&ap3216cdev, AP3216C_SYSTEMCONG, 0x03);
     return 0;

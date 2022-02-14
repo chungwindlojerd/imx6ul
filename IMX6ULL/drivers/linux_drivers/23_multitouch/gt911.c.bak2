@@ -1,0 +1,452 @@
+#include <linux/module.h>
+#include <linux/ratelimit.h>
+#include <linux/interrupt.h>
+#include <linux/input.h>
+#include <linux/i2c.h>
+#include <linux/uaccess.h>
+#include <linux/delay.h>
+#include <linux/debugfs.h>
+#include <linux/slab.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/input/mt.h>
+#include <linux/input/touchscreen.h>
+#include <linux/sched.h>
+#include <linux/timer.h>
+#include <linux/workqueue.h>
+#include <asm/unaligned.h>
+
+
+#define MAX_SUPPORT_POINTS  5
+
+#define GT911_TOUCH_INFO        0x8140
+#define GT911_TOUCH_DATA_REG    0x814E
+
+#define GT911_CONTACT_SIZE      8
+
+struct gt911_dev
+{
+    struct device_node *nd;
+    int irq_pin;
+    int reset_pin;  
+    int irqnum;
+    // int timeperiod;
+    void *private_data;
+    struct input_dev *input;
+    struct i2c_client *client;
+    // struct timer_list timer;
+    // struct delayed_work tsc_work;
+};
+
+static struct gt911_dev gt911;
+
+
+/**
+ * @brief gt911 复位操作，选择地址为0x5D
+ * 
+ * @param client 
+ * @param dev 
+ * @return int 
+ */
+static int gt911_reset(struct i2c_client *client, struct gt911_dev *dev)
+{
+    int ret = 0;
+
+    if (gpio_is_valid(dev->reset_pin))
+    {
+        ret = devm_gpio_request_one(&client->dev, dev->reset_pin, 
+                                    GPIOF_OUT_INIT_LOW, "gt911 reset");
+        if (ret)
+        {
+            dev_err(&client->dev, "failed to request gpio %d, error %d\r\n",
+                    dev->reset_pin, ret);
+            return ret;
+        }
+    }
+
+    if (gpio_is_valid(dev->irq_pin))
+    {
+        ret = devm_gpio_request_one(&client->dev, dev->irq_pin, 
+                                    GPIOF_OUT_INIT_LOW, "gt911 irq");
+        if (ret)
+        {
+            dev_err(&client->dev, "failed to request gpio %d, error %d\r\n",
+                    dev->irq_pin, ret);
+            return ret;
+        }
+    }
+
+    msleep(5);
+    gpio_set_value(dev->irq_pin, 0);
+    gpio_set_value(dev->reset_pin, 0);
+    msleep(10);
+    gpio_set_value(dev->reset_pin, 1);
+    gpio_set_value(dev->irq_pin, 1);
+    gpio_direction_input(dev->irq_pin);
+    msleep(10);
+    return 0;
+}
+
+
+/**
+ * @brief gt911 连续读取寄存器值
+ * 
+ * @param dev 
+ * @param reg 
+ * @param val 
+ * @param len 
+ * @return int 
+ */
+static int gt911_read_regs(struct gt911_dev *dev, uint16_t reg, 
+                           void *val, int len)
+{
+    int ret = 0;
+    struct i2c_msg msg[2];
+    struct i2c_client *client = dev->client;
+    uint8_t buff[2];
+
+    buff[0] = (uint8_t)(reg >> 8);
+    buff[1] = (uint8_t)(reg & 0xFF);
+
+    msg[0].addr = client->addr;
+    msg[0].flags = 0;
+    msg[0].buf = buff;
+    msg[0].len = 2;
+
+    msg[1].addr = client->addr;
+    msg[1].flags = I2C_M_RD;
+    msg[1].buf = val;
+    msg[1].len = len;
+
+    ret = i2c_transfer(client->adapter, msg, 2);
+    if (ret == 2) 
+    {
+        ret = 0;
+    }
+    else
+    {
+        ret = -EREMOTEIO;
+    }
+    return ret;
+}
+
+/**
+ * @brief gt911 连续写入寄存器值
+ * 
+ * @param dev 
+ * @param reg 
+ * @param buf 
+ * @param len 
+ * @return int 
+ */
+static int gt911_write_regs(struct gt911_dev *dev, uint16_t reg, 
+                            uint8_t *buf, uint8_t len)
+{
+    uint8_t buff[256];
+    struct i2c_msg msg;
+    struct i2c_client *client = dev->client;
+
+    buff[0] = (uint8_t)((reg & 0xFF00) >> 8);
+    buff[1] = (uint8_t)(reg & 0xFF);
+    memcpy(&buff[2], buf, len);
+
+    msg.addr = client->addr;
+    msg.flags = 0;
+
+    msg.buf = buff;
+    msg.len = len + 2;
+    return i2c_transfer(client->adapter, &msg, 1);
+}
+
+/**
+ * @brief gt911 写入单个寄存器值
+ * 
+ * @param dev 
+ * @param reg 
+ * @param data 
+ */
+static void gt911_write_reg(struct gt911_dev *dev, uint16_t reg, uint8_t data)
+{
+    uint8_t buf = 0;
+    buf = data;
+    gt911_write_regs(dev, reg, &buf, 1);
+}
+
+
+/**
+ * @brief 获取gt911配置信息
+ * 
+ * @param dev 
+ */
+static void gt911_get_info(struct gt911_dev *dev)
+{
+    uint8_t rdbuff[11];
+    int i = 0;
+    int ret = 0;
+
+    printk("get gt911 info.\r\n");
+    
+    memset(rdbuff, 0, sizeof(rdbuff));
+
+    ret = gt911_read_regs(dev, GT911_TOUCH_INFO, rdbuff, 11);
+    if (ret != 0)
+    {
+        printk("read error.\r\n");
+    }
+
+    for (i = 0; i < 11; i++)
+    {
+        printk("buff[%d] = %d, ", i, rdbuff[i]);
+    }    
+    printk("\r\n");
+}
+
+
+/**
+ * @brief gt911读取触摸点坐标并上报
+ * 
+ * @param dev 
+ */
+static void gt911_read_points(struct gt911_dev *dev)
+{
+    uint8_t rdbuff[1 + MAX_SUPPORT_POINTS * GT911_CONTACT_SIZE];
+    int i = 0;
+    int ret = 0;
+    uint8_t touch_num = 0;
+    
+    memset(rdbuff, 0, sizeof(rdbuff));
+
+    ret = gt911_read_regs(dev, GT911_TOUCH_DATA_REG, rdbuff,
+                          1 + GT911_CONTACT_SIZE);
+    if (ret)
+    {
+        dev_err(&dev->client->dev, "I2C transfer error: %d\n", ret);
+        return;
+    }
+
+    // 上报触摸事件 
+    touch_num = rdbuff[0] & 0x0f;
+
+    if (touch_num > 1)
+    {
+        ret = gt911_read_regs(dev, GT911_TOUCH_DATA_REG + 1 + GT911_CONTACT_SIZE,
+                              rdbuff + GT911_CONTACT_SIZE + 1, 
+                              GT911_CONTACT_SIZE * (touch_num - 1));
+        if (ret)
+        {
+            dev_err(&dev->client->dev, "I2C transfer error: %d\n", ret);
+            return;
+        }
+    }
+
+    /* 上报触摸事件 */
+	for (i = 0; i < touch_num; i++)
+	{
+        int index = i * GT911_CONTACT_SIZE + 1;
+        int id = rdbuff[index] & 0x0F;
+        int input_x = get_unaligned_le16(&rdbuff[index + 1]);
+        int input_y = get_unaligned_le16(&rdbuff[index + 3]);
+        //int input_w = get_unaligned_le16(&rdbuff[index + 5]);
+
+        printk("id%d: x = %d, y = %d\r\n", id, input_x, input_y);
+
+        input_mt_slot(dev->input, id);
+        input_mt_report_slot_state(dev->input, MT_TOOL_FINGER, true);
+        input_report_abs(dev->input, ABS_MT_POSITION_X, input_x);
+        input_report_abs(dev->input, ABS_MT_POSITION_Y, input_y);
+    }
+
+    for (i = touch_num; i < MAX_SUPPORT_POINTS; i++)
+    {
+        input_mt_slot(dev->input, i);
+        input_mt_report_slot_state(dev->input, MT_TOOL_FINGER, false);
+    }
+
+	input_mt_sync_frame(dev->input);
+	input_sync(dev->input);
+
+    gt911_write_reg(dev, GT911_TOUCH_DATA_REG, 0);
+}
+
+
+// void timer_function(unsigned long arg)
+// {
+//     struct gt911_dev *dev = (struct gt911_dev *)arg;
+
+//     // 工作队列启动
+//     schedule_delayed_work(&dev->tsc_work, msecs_to_jiffies(1));
+// 	mod_timer(&dev->timer, jiffies + msecs_to_jiffies(dev->timeperiod)); 
+// }
+
+/**
+ * @brief 工作队列调度函数
+ * 
+ * @param work 
+ */
+// static void delay_work_func(struct work_struct *work)
+// {
+//     gt911_read_points(&gt911);
+// }
+
+
+static irqreturn_t gt911_irq_handler(int irq, void *dev_id)
+{
+    struct gt911_dev *dev = dev_id;
+
+    printk("enter irq handler.\r\n");
+    gt911_read_points(dev);
+
+    return IRQ_HANDLED;
+}
+
+
+static int gt911_ts_irq(struct i2c_client *client, struct gt911_dev *dev)
+{
+	int ret = 0;
+
+	/* 2，申请中断,client->irq就是IO中断， */
+	ret = devm_request_threaded_irq(&client->dev, client->irq, NULL,
+					                gt911_irq_handler, 
+                                    IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+					                client->name, &gt911);
+	if (ret) {
+		dev_err(&client->dev, "Unable to request touchscreen IRQ.\n");
+		return ret;
+	}
+
+	return 0;
+}
+
+/*
+  * @description     : i2c驱动的probe函数，当驱动与
+  *                    设备匹配以后此函数就会执行
+  * @param - client  : i2c设备
+  * @param - id      : i2c设备ID
+  * @return          : 0，成功;其他负值,失败
+  */
+static int gt911_probe(struct i2c_client *client, 
+                       const struct i2c_device_id *id)
+{
+	int ret = 0;
+
+    printk("gt911 probe\r\n");
+
+	gt911.client = client;
+
+	/* 1，获取设备树中的中断和复位引脚 */
+	gt911.irq_pin = of_get_named_gpio(client->dev.of_node, "interrupt-gpios", 0);
+	gt911.reset_pin = of_get_named_gpio(client->dev.of_node, "reset-gpios", 0);
+
+	ret = gt911_reset(client, &gt911);
+	if(ret < 0) {
+        printk("gt911 reset failed.\r\n");
+		goto fail;
+	}
+
+	/* 3，初始化定时器及工作队列 */
+    // init_timer(&gt911.timer);
+	// gt911.timer.function = timer_function;
+	// gt911.timer.data = (unsigned long)&gt911;
+    // gt911.timeperiod = 30;
+    // mod_timer(&gt911.timer, jiffies + msecs_to_jiffies(gt911.timeperiod));
+
+    // INIT_DELAYED_WORK(&gt911.tsc_work, delay_work_func);
+    ret = gt911_ts_irq(client, &gt911);
+	if(ret < 0) {
+        printk("gt911 irq set failed.\r\n");
+		goto fail;
+	}
+
+    gt911_get_info(&gt911);
+
+	/* 5，input设备注册 */
+	gt911.input = devm_input_allocate_device(&client->dev);
+	if (!gt911.input) {
+		ret = -ENOMEM;
+		goto fail;
+	}
+	gt911.input->name = client->name;
+	gt911.input->id.bustype = BUS_I2C;
+	gt911.input->dev.parent = &client->dev;
+
+	__set_bit(EV_KEY, gt911.input->evbit);
+	__set_bit(EV_ABS, gt911.input->evbit);
+	__set_bit(BTN_TOUCH, gt911.input->keybit);
+
+	input_set_abs_params(gt911.input, ABS_X, 0, 800, 0, 0);
+	input_set_abs_params(gt911.input, ABS_Y, 0, 480, 0, 0);
+	input_set_abs_params(gt911.input, ABS_MT_POSITION_X,0, 800, 0, 0);
+	input_set_abs_params(gt911.input, ABS_MT_POSITION_Y,0, 480, 0, 0);	     
+	ret = input_mt_init_slots(gt911.input, MAX_SUPPORT_POINTS, 0);
+	if (ret) {
+        printk("init slot failed.\r\n");
+		goto fail;
+	}
+
+	ret = input_register_device(gt911.input);
+	if (ret)
+    {
+        printk("register device failed.\r\n");
+		goto fail;
+    }
+
+	return 0;
+
+fail:
+	return ret;
+}
+
+
+static int gt911_remove(struct i2c_client *client)
+{	
+	/* 释放input_dev */
+	input_unregister_device(gt911.input);
+	return 0;
+}
+
+static const struct i2c_device_id gt911_id[] = {
+	{ "alientek,gt911", 0, },
+	{ /* sentinel */ }
+};
+
+
+static const struct of_device_id gt911_of_match[] = {
+	{ .compatible = "alientek,gt911", },
+	{ /* sentinel */ }
+};
+
+
+static struct i2c_driver gt911_driver = {
+	.driver = {
+		.owner = THIS_MODULE,
+		.name = "gt911",
+		.of_match_table = of_match_ptr(gt911_of_match),
+	},
+	.id_table = gt911_id,
+	.probe    = gt911_probe,
+	.remove   = gt911_remove,
+};
+
+
+static int __init gt911_init(void)
+{
+	int ret = 0;
+
+	ret = i2c_add_driver(&gt911_driver);
+
+	return ret;
+}
+
+
+static void __exit gt911_exit(void)
+{
+    // del_timer_sync(&gt911.timer);
+    // cancel_delayed_work_sync(&gt911.tsc_work);
+	i2c_del_driver(&gt911_driver);
+}
+
+module_init(gt911_init);
+module_exit(gt911_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Jack Huang");
+

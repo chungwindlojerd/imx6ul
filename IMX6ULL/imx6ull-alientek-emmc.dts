@@ -14,7 +14,7 @@
 / {
 	model = "Freescale i.MX6 ULL 14x14 EVK Board";
 	compatible = "fsl,imx6ull-14x14-evk", "fsl,imx6ull";
-
+/*
 	key {
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -25,7 +25,7 @@
 		interrupt-parent = <&gpio1>;
 		interrupts = <18 IRQ_TYPE_EDGE_BOTH>;
 		status = "okay";
-	};
+	};*/
 
 	beep {
 		#address-cells = <1>;
@@ -111,7 +111,7 @@
 			regulator-name = "VSD_3V3";
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
-			gpio = <&gpio1 9 GPIO_ACTIVE_HIGH>;
+			/*gpio = <&gpio1 9 GPIO_ACTIVE_HIGH>;*/
 			enable-active-high;
 		};
 
@@ -315,6 +315,17 @@
 			};
 		};
 	};
+
+	gt911: gt911@5d {
+		compatible = "alientek,gt911";
+		reg = <0x5d>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_tsc &pinctrl_tsc_reset>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <9 0>;
+		reset-gpios = <&gpio5 9 GPIO_ACTIVE_LOW>;
+		interrupt-gpios = <&gpio1 9 GPIO_ACTIVE_LOW>;
+	};
 };
 
 &iomuxc {
@@ -322,17 +333,27 @@
 	pinctrl-0 = <&pinctrl_hog_1>;
 	imx6ul-evk {
 
+		pinctrl_ecspi3: icm20608 {
+			fsl,pins = <
+				MX6UL_PAD_UART2_TX_DATA__GPIO1_IO20			0x10b0	/* CS */
+				MX6UL_PAD_UART2_RX_DATA__ECSPI3_SCLK		0x10b1	/* SCLK */
+				MX6UL_PAD_UART2_RTS_B__ECSPI3_MISO			0x10b1  /* MISO */
+				MX6UL_PAD_UART2_CTS_B__ECSPI3_MOSI			0x10b1	/* MOSI */
+			>;
+		};
+
 		pinctrl_led: ledgrp {
 			fsl,pins = <
 				MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0x10B0	/* led */
 			>;
 		};
-
+		/*
 		pinctrl_key: keygrp {
 			fsl,pins = <
-				MX6UL_PAD_UART1_CTS_B__GPIO1_IO18	0xF080	/* key0 */
+				MX6UL_PAD_UART1_CTS_B__GPIO1_IO18	0xF080	
 			>;
-		};
+		};*/
+		
 
 		pinctrl_beep: beepgrp {
 			fsl,pins = <
@@ -344,7 +365,7 @@
 			fsl,pins = <
 				MX6UL_PAD_UART1_RTS_B__GPIO1_IO19		0x17059 /* SD1 CD */
 				MX6UL_PAD_GPIO1_IO05__USDHC1_VSELECT	0x17059 /* SD1 VSELECT */
-				MX6UL_PAD_GPIO1_IO09__GPIO1_IO09        0x17059 /* SD1 RESET */
+				/*MX6UL_PAD_GPIO1_IO09__GPIO1_IO09        0x17059 */ /* SD1 RESET */
 			>;
 		};
 
@@ -488,12 +509,17 @@
 
 		pinctrl_tsc: tscgrp {
 			fsl,pins = <
-				MX6UL_PAD_GPIO1_IO01__GPIO1_IO01	0xb0
-				MX6UL_PAD_GPIO1_IO02__GPIO1_IO02	0xb0
-				/*MX6UL_PAD_GPIO1_IO03__GPIO1_IO03	0xb0*/
-				MX6UL_PAD_GPIO1_IO04__GPIO1_IO04	0xb0
+				MX6UL_PAD_GPIO1_IO09__GPIO1_IO09	0x10b0	/* touch int */
 			>;
 		};
+
+		pinctrl_tsc_reset: tsc_reset {
+			fsl,pins = <
+				MX6ULL_PAD_SNVS_TAMPER9__GPIO5_IO09	0x10b0
+			>;
+		};
+
+		
 
 		pinctrl_uart1: uart1grp {
 			fsl,pins = <
@@ -633,12 +659,6 @@
                         >;
                 };
 		
-		pinctrl_lcdif_reset: lcdifresetgrp {
-                        fsl,pins = <
-                                /* used for lcd reset */
-                                MX6ULL_PAD_SNVS_TAMPER9__GPIO5_IO09  0x79
-                        >;
-                };
 
 		pinctrl_spi4: spi4grp {
                         fsl,pins = <
@@ -743,7 +763,7 @@
 
 &tsc {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_tsc>;
+	/* pinctrl-0 = <&pinctrl_tsc>; */
 	/*xnur-gpio = <&gpio1 3 GPIO_ACTIVE_LOW>;*/
 	measure-delay-time = <0xffff>;
 	pre-charge-time = <0xfff>;
@@ -814,4 +834,18 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_wdog>;
 	fsl,wdog_b;
+};
+
+&ecspi3 {
+	fsl,spi-num-chiselects = <1>;
+	cs-gpios = <&gpio1 20 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi3>;
+	status = "okay";
+
+	spidev: icm20608@0 {
+		compatible = "alientek,icm20608";
+		spi-max-frequency = <8000000>;
+		reg = <0>;
+	};
 };
